@@ -1,0 +1,25 @@
+name: kaspa_sdk
+description: Pure-Dart SDK for the Kaspa cryptocurrency — wallet, signing, UTXO management, and wRPC node client.
+version: 0.1.0
+homepage: https://github.com/Kasway-Tech/kaspa_sdk
+repository: https://github.com/Kasway-Tech/kaspa_sdk
+topics:
+  - kaspa
+  - cryptocurrency
+  - blockchain
+  - wallet
+
+environment:
+  sdk: ">=3.3.0 <4.0.0"
+
+dependencies:
+  bip39: ^1.0.6
+  bip32: ^2.0.0
+  hex: ^0.2.0
+  pointycastle: ^3.9.1
+  crypto: ^3.0.3
+  meta: ^1.17.0
+
+dev_dependencies:
+  test: ^1.25.0
+  lints: ^5.0.0
