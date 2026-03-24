@@ -1,0 +1,55 @@
+name: Release
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # push tag
+      id-token: write   # OIDC token for pub.dev
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read version from pubspec.yaml
+        id: version
+        run: |
+          VERSION=$(grep '^version:' pubspec.yaml | sed 's/version: *//')
+          echo "value=v$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Check if tag already exists
+        id: tag_check
+        env:
+          TAG: ${{ steps.version.outputs.value }}
+        run: |
+          if git ls-remote --tags origin "$TAG" | grep -q "$TAG"; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create and push tag
+        if: steps.tag_check.outputs.exists == 'false'
+        env:
+          TAG: ${{ steps.version.outputs.value }}
+        run: |
+          git tag "$TAG"
+          git push origin "$TAG"
+
+      - uses: dart-lang/setup-dart@v1
+        if: steps.tag_check.outputs.exists == 'false'
+
+      - run: dart pub get
+        if: steps.tag_check.outputs.exists == 'false'
+
+      - run: dart analyze
+        if: steps.tag_check.outputs.exists == 'false'
+
+      - run: dart test
+        if: steps.tag_check.outputs.exists == 'false'
+
+      - uses: dart-lang/pub-dev-action@v1
+        if: steps.tag_check.outputs.exists == 'false'
