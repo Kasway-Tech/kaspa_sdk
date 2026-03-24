@@ -308,6 +308,14 @@ Uint8List calcKaspaSigHash({
   return h.digest();
 }
 
+/// Returns the 33-byte compressed-SEC public key for a 32-byte secp256k1 private key.
+Uint8List privKeyToCompressedPubKey(Uint8List privKey32) {
+  assert(privKey32.length == 32);
+  final P = _Pt.G.mul(_bigIntFromBytes(privKey32));
+  final prefix = P.y.isOdd ? 0x03 : 0x02;
+  return Uint8List.fromList([prefix, ..._bigIntToBytes32(P.x)]);
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Signature script + SPK helpers
 // ─────────────────────────────────────────────────────────────────────────────

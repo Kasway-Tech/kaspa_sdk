@@ -4,11 +4,12 @@ library;
 
 import 'dart:typed_data';
 
-import 'package:bip32/bip32.dart' as bip32;
-import 'package:bip39/bip39.dart' as bip39;
+import 'package:crypto/crypto.dart';
 
 import 'address.dart';
+import 'bip39.dart' as bip39;
 import 'node_client.dart';
+import 'signing.dart';
 import 'transaction.dart';
 
 /// A Kaspa wallet derived from a BIP39 mnemonic.
@@ -74,13 +75,12 @@ class KaspaWallet {
       throw ArgumentError(validation.error, 'mnemonic');
     }
     final seed = bip39.mnemonicToSeed(mnemonic);
-    final root = bip32.BIP32.fromSeed(seed);
-    final child = root.derivePath("m/44'/111111'/0'/0/0");
-    final address = encodeKaspaAddress(child.publicKey, hrp: hrp);
+    final derived = _bip32Derive(seed, "m/44'/111111'/0'/0/0");
+    final address = encodeKaspaAddress(derived.publicKey, hrp: hrp);
     return KaspaWallet._(
       mnemonic: mnemonic,
       address: address,
-      privateKey32: child.privateKey!,
+      privateKey32: derived.privateKey,
     );
   }
 
@@ -183,4 +183,86 @@ class KaspaWallet {
       await client.close();
     }
   }
+}
+
+// ─── BIP32 derivation (replaces the `bip32` package) ─────────────────────────
+
+final _bip32n = BigInt.parse(
+  'FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141',
+  radix: 16,
+);
+
+Uint8List _hmacSha512(List<int> key, List<int> data) =>
+    Uint8List.fromList(Hmac(sha512, key).convert(data).bytes);
+
+BigInt _bip32BytesToBigInt(Uint8List b) {
+  var result = BigInt.zero;
+  for (final byte in b) {
+    result = (result << 8) | BigInt.from(byte);
+  }
+  return result;
+}
+
+Uint8List _bip32BigIntTo32(BigInt n) {
+  final result = Uint8List(32);
+  var temp = n;
+  for (var i = 31; i >= 0; i--) {
+    result[i] = (temp & BigInt.from(0xFF)).toInt();
+    temp >>= 8;
+  }
+  return result;
+}
+
+class _Bip32Key {
+  const _Bip32Key(this.key, this.chainCode);
+  final Uint8List key;
+  final Uint8List chainCode;
+}
+
+_Bip32Key _bip32Master(Uint8List seed) {
+  final hmac = _hmacSha512('Bitcoin seed'.codeUnits, seed);
+  return _Bip32Key(
+    Uint8List.fromList(hmac.sublist(0, 32)),
+    Uint8List.fromList(hmac.sublist(32)),
+  );
+}
+
+_Bip32Key _bip32Child(_Bip32Key parent, int index) {
+  final data = Uint8List(37);
+  if (index >= 0x80000000) {
+    // Hardened: 0x00 || key || ser32(index)
+    data[0] = 0x00;
+    data.setRange(1, 33, parent.key);
+  } else {
+    // Normal: serP(point(key)) || ser32(index)
+    data.setRange(0, 33, privKeyToCompressedPubKey(parent.key));
+  }
+  data[33] = (index >> 24) & 0xFF;
+  data[34] = (index >> 16) & 0xFF;
+  data[35] = (index >> 8) & 0xFF;
+  data[36] = index & 0xFF;
+
+  final hmac = _hmacSha512(parent.chainCode, data);
+  final il = Uint8List.fromList(hmac.sublist(0, 32));
+  final ir = Uint8List.fromList(hmac.sublist(32));
+  final childInt =
+      (_bip32BytesToBigInt(il) + _bip32BytesToBigInt(parent.key)) % _bip32n;
+  return _Bip32Key(_bip32BigIntTo32(childInt), ir);
+}
+
+({Uint8List publicKey, Uint8List privateKey}) _bip32Derive(
+  Uint8List seed,
+  String path,
+) {
+  var node = _bip32Master(seed);
+  for (final seg in path.split('/').skip(1)) {
+    final hardened = seg.endsWith("'");
+    final idx =
+        int.parse(hardened ? seg.substring(0, seg.length - 1) : seg);
+    node = _bip32Child(node, hardened ? idx + 0x80000000 : idx);
+  }
+  return (
+    publicKey: privKeyToCompressedPubKey(node.key),
+    privateKey: node.key,
+  );
 }
