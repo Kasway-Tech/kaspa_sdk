@@ -51,5 +51,6 @@ jobs:
       - run: dart test
         if: steps.tag_check.outputs.exists == 'false'
 
-      - uses: dart-lang/pub-dev-action@v1
+      - name: Publish to pub.dev
         if: steps.tag_check.outputs.exists == 'false'
+        run: dart pub publish --force
